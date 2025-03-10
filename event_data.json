@@ -1,0 +1,25 @@
+{
+    "events": {
+        "1348801260765057024": {
+            "title": "23412331",
+            "time": "11.03.2025 19:00",
+            "game": "4244242442",
+            "max_players": 1,
+            "description": "\u00eaqwwffw",
+            "rulebook": "",
+            "participants": {
+                "yes": [
+                    447357020165767170
+                ],
+                "maybe": [
+                    334633012580974594
+                ],
+                "no": []
+            },
+            "message_id": 1348801261583073300,
+            "channel_id": 1348180620563578905
+        }
+    },
+    "admins": [],
+    "moderators": []
+}
