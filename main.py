@@ -29,6 +29,9 @@ class Client(commands.Bot):
         except Exception as e:
             log.error(f'❌ Fehler beim Sync: {e}')
         check_events.start()
+        data = load_data()
+        for event_id, event in data["events"].items():
+            self.add_view(EventButtons(event_id))
 
 
 intents = discord.Intents.default()
@@ -174,19 +177,32 @@ class EventModalDetails(discord.ui.Modal, title="Event-Erstellung (2/2)"):
 
 class EventButtons(discord.ui.View):
     def __init__(self, event_id: str):
-        super().__init__()
+        super().__init__(timeout=None)  # persistent
         self.event_id = event_id
 
-    @discord.ui.button(label="✅ Teilnehmen", style=discord.ButtonStyle.green)
-    async def join_event(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Erstelle Buttons mit eindeutigen custom_ids
+        join_button = discord.ui.Button(label="✅ Teilnehmen", style=discord.ButtonStyle.green,
+                                        custom_id=f"join_{event_id}")
+        maybe_button = discord.ui.Button(label="⚠️ Vielleicht", style=discord.ButtonStyle.blurple,
+                                         custom_id=f"maybe_{event_id}")
+        decline_button = discord.ui.Button(label="❌ Absagen", style=discord.ButtonStyle.red,
+                                           custom_id=f"decline_{event_id}")
+
+        join_button.callback = self.join_event
+        maybe_button.callback = self.maybe_event
+        decline_button.callback = self.decline_event
+
+        self.add_item(join_button)
+        self.add_item(maybe_button)
+        self.add_item(decline_button)
+
+    async def join_event(self, interaction: discord.Interaction):
         await self._handle_participation(interaction, "yes")
 
-    @discord.ui.button(label="⚠️ Vielleicht", style=discord.ButtonStyle.blurple)
-    async def maybe_event(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def maybe_event(self, interaction: discord.Interaction):
         await self._handle_participation(interaction, "maybe")
 
-    @discord.ui.button(label="❌ Absagen", style=discord.ButtonStyle.red)
-    async def decline_event(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def decline_event(self, interaction: discord.Interaction):
         await self._handle_participation(interaction, "no")
 
     async def _handle_participation(self, interaction: discord.Interaction, choice: str):
