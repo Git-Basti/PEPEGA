@@ -16,6 +16,7 @@ After that right click on the server icon and at the bottom you can copy the ser
 the .env file should then contain the following
 
 DISCORD_TOKEN=-Paste here your TOKEN-
+
 GUILD_ID=-Paste here your ID-
 
 If you still get an error contact me
