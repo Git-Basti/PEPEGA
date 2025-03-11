@@ -1,45 +1,26 @@
 {
     "events": {
-        "1348801260765057024": {
-            "title": "23412331",
-            "time": "11.03.2025 19:00",
-            "game": "4244242442",
+        "1348903951298461737": {
+            "title": "Guten tag",
+            "time": "23.03.2025 18:00",
+            "game": "Zug um Zug",
             "max_players": 1,
-            "description": "\u00eaqwwffw",
+            "description": "Geiles Game",
             "rulebook": "",
             "participants": {
-                "yes": [
-                    447357020165767170
-                ],
-                "maybe": [
-                    334633012580974594
-                ],
-                "no": []
-            },
-            "message_id": 1348801261583073300,
-            "channel_id": 1348180620563578905
-        },
-        "1348894964888895498": {
-            "title": "24234242",
-            "time": "13.03.2025 15:00",
-            "game": "wggwgwg",
-            "max_players": 1,
-            "description": "wggw",
-            "rulebook": "",
-            "participants": {
-                "yes": [
-                    447357020165767170
-                ],
+                "yes": [],
                 "maybe": [],
                 "no": []
             },
-            "message_id": 1348894965698265149,
-            "channel_id": 1348180620563578905
+            "message_id": 1348903953651466293,
+            "end_time": "23.03.2025 18:40",
+            "discord_event_link": "Fehler beim Erstellen des Discord-Events."
         }
     },
     "admins": [
         447357020165767170,
         789559565192265750
     ],
-    "moderators": []
+    "moderators": [],
+    "event_channel_id": 1348903735564173312
 }
