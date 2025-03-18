@@ -89,29 +89,36 @@ class EventButtons(discord.ui.View):
         participants = event["participants"]
 
         # Entferne den User aus allen Kategorien
-        for category in ["yes", "maybe", "no"]:
+        for category in ["yes", "maybe", "no", "waiting"]:
             if user_id in participants[category]:
                 participants[category].remove(user_id)
 
-        if choice == "yes" and len(participants["yes"]) >= event["max_players"]:
-            choice = "maybe"
-            await interaction.response.send_message("ℹ️ Event ist voll – du wurdest auf die Warteliste gesetzt.", ephemeral=True)
-        if user_id not in participants[choice]:
-            participants[choice].append(user_id)
-
-        # Falls Platz frei wird, warte Teilnehmer nachrücken lassen
-        if choice != "yes" and len(participants["yes"]) < event["max_players"] and participants["maybe"]:
-            first_waiting = participants["maybe"].pop(0)
-            if first_waiting != user_id:
-                participants["yes"].append(first_waiting)
+        if choice == "yes":
+            if len(participants["yes"]) >= event["max_players"]:
+                # Wenn das Event voll ist, in die neue Kategorie "waiting" einfügen
+                if user_id not in participants["waiting"]:
+                    participants["waiting"].append(user_id)
+                event["participants"] = participants
+                data["events"][self.event_id] = event
+                save_data(data)
+                await interaction.response.send_message("ℹ️ Event ist voll – du wurdest auf die Warteliste gesetzt.", ephemeral=True)
+                return
             else:
-                participants["maybe"].insert(0, first_waiting)
+                if user_id not in participants["yes"]:
+                    participants["yes"].append(user_id)
+        else:
+            if user_id not in participants[choice]:
+                participants[choice].append(user_id)
+
         event["participants"] = participants
         data["events"][self.event_id] = event
         save_data(data)
 
+        # Aktualisiere das Embed
         try:
             event_datetime = datetime.strptime(event["time"], "%d.%m.%Y %H:%M")
+            local_tz = datetime.now().astimezone().tzinfo
+            event_datetime = event_datetime.replace(tzinfo=local_tz)
         except ValueError:
             await interaction.response.send_message("❌ Fehler beim Parsen des Datums.", ephemeral=True)
             return
@@ -119,21 +126,24 @@ class EventButtons(discord.ui.View):
         formatted_datetime = event_datetime.strftime("%d.%m.%Y %H:%M")
         relative_timestamp = f"<t:{int(event_datetime.timestamp())}:R>"
         embed = discord.Embed(title=event["title"], color=discord.Color.blue())
-        embed.add_field(name="📅 Datum & Uhrzeit", value=f"{formatted_datetime} \n {relative_timestamp}", inline=True)
+        embed.add_field(name="📅 Datum & Uhrzeit", value=f"{formatted_datetime}\n{relative_timestamp}", inline=True)
         embed.add_field(name="🎮 Spiel", value=event["game"], inline=True)
-        embed.add_field(name="👥 Max. Spieler", value="        " + str(event["max_players"]), inline=True)
+        embed.add_field(name="👥 Max. Spieler", value=str(event["max_players"]), inline=True)
         if "end_time" in event:
-            duration_minutes = int((datetime.strptime(event["end_time"], "%d.%m.%Y %H:%M") - event_datetime).total_seconds() // 60)
+            duration_minutes = int((datetime.strptime(event["end_time"], "%d.%m.%Y %H:%M").replace(
+                tzinfo=local_tz) - event_datetime).total_seconds() // 60)
             embed.add_field(name="⏳ Dauer", value=f"{duration_minutes} Minuten", inline=True)
         embed.add_field(name="📜 Beschreibung", value=event["description"], inline=False)
         if event["rulebook"]:
             embed.add_field(name="📌 Regelwerk / Link", value=event["rulebook"], inline=False)
         yes_mentions = ', '.join([f'<@{uid}>' for uid in event["participants"]["yes"]]) or "Keine"
         maybe_mentions = ', '.join([f'<@{uid}>' for uid in event["participants"]["maybe"]]) or "Keine"
+        waiting_mentions = ', '.join([f'<@{uid}>' for uid in event["participants"]["waiting"]]) or "Keine"
         no_mentions = ', '.join([f'<@{uid}>' for uid in event["participants"]["no"]]) or "Keine"
         embed.add_field(name="✅ Zusagen", value=yes_mentions, inline=True)
         embed.add_field(name="⚠️ Vielleicht", value=maybe_mentions, inline=True)
         embed.add_field(name="❌ Absagen", value=no_mentions, inline=True)
+        # Optional: Im Update-Embed kann man die Warteliste auch anzeigen, hier erfolgt dies nicht zwingend
         await interaction.response.edit_message(embed=embed)
 
 # --- Modale zur Event-Erstellung ---
@@ -190,6 +200,9 @@ class EventModalDetails(discord.ui.Modal, title="Event-Erstellung (2/2)"):
                 self.basic_data["date"].strip() + " " + self.basic_data["time"].strip(),
                 "%d.%m.%Y %H:%M"
             )
+            # Mache das Datum "aware" indem du die lokale Zeitzone setzt
+            local_tz = datetime.now().astimezone().tzinfo
+            event_datetime = event_datetime.replace(tzinfo=local_tz)
         except ValueError:
             await interaction.response.send_message(
                 "❌ Ungültiges Datums- oder Zeitformat! Bitte nutze DD.MM.JJJJ für das Datum und HH:MM für die Uhrzeit.",
@@ -197,7 +210,7 @@ class EventModalDetails(discord.ui.Modal, title="Event-Erstellung (2/2)"):
             )
             return
 
-        now = datetime.now()
+        now = datetime.now().astimezone()
         if event_datetime <= now:
             await interaction.response.send_message(
                 "❌ Das angegebene Datum/Zeit liegt in der Vergangenheit. Bitte eine zukünftige Zeit wählen.",
@@ -223,6 +236,7 @@ class EventModalDetails(discord.ui.Modal, title="Event-Erstellung (2/2)"):
 
         data = load_data()
         event_id = str(interaction.id)
+        # Teilnehmer-Datenstruktur mit neuer Kategorie "waiting" initialisieren
         event_data = {
             "title": self.basic_data["title"],
             "time": event_datetime.strftime("%d.%m.%Y %H:%M"),
@@ -230,22 +244,31 @@ class EventModalDetails(discord.ui.Modal, title="Event-Erstellung (2/2)"):
             "max_players": max_players,
             "description": self.description.value,
             "rulebook": self.rulebook.value,
-            "participants": {"yes": [], "maybe": [], "no": []},
+            "participants": {"yes": [], "maybe": [], "no": [], "waiting": []},
             "message_id": None,
+            "channel_id": interaction.channel.id  # Speichere den Channel, in dem das Event erstellt wurde
         }
         if duration_minutes is not None:
             event_data["end_time"] = (event_datetime + timedelta(minutes=duration_minutes)).strftime("%d.%m.%Y %H:%M")
         data["events"][event_id] = event_data
         save_data(data)
 
-        # Erstelle das native Discord-Event direkt beim Anlegen
+        # Sende zuerst die Custom Event Nachricht, um den Nachrichtenlink (jump_url) zu erhalten
+        view = EventButtons(event_id)
+        await interaction.response.send_message(embed=self._build_embed(event_data, event_datetime, duration_minutes), view=view)
+        message = await interaction.original_response()
+        message_link = message.jump_url
+
+        # Erstelle nun den nativen Discord-Event – unter Verwendung des Nachrichtenlinks
         guild = interaction.guild
         start_time = event_datetime
         end_time = start_time + timedelta(hours=2)
         event_name = event_data["title"]
-        event_description = f"{event_data['game']}\n{event_data['description']}"
-        cover_image_url = "https://cdn.discordapp.com/attachments/740231955731316796/1348899987785781258/Banner_fur_Events.png?ex=67d12482&is=67cfd302&hm=2b2dbede4f5e00f07da8346eccb2780bd2a06d976051b7371e731d452248b998&"
+        base_event_description = f"{event_data['game']}\n\n{event_data['description']}"
+        participant_counts = "✅ Zusagen: 0\n⚠️ Vielleicht: 0\n❌ Absagen: 0"
+        updated_event_description = f"{base_event_description}\n\n{participant_counts}\n\n\nEventdetails and Anmeldelink: {message_link}"
 
+        cover_image_url = "https://cdn.discordapp.com/attachments/740231955731316796/1348899987785781258/Banner_fur_Events.png?ex=67d12482&is=67cfd302&hm=2b2dbede4f5e00f07da8346eccb2780bd2a06d976051b7371e731d452248b998&"
         async with aiohttp.ClientSession() as session:
             async with session.get(cover_image_url) as resp:
                 if resp.status == 200:
@@ -255,32 +278,53 @@ class EventModalDetails(discord.ui.Modal, title="Event-Erstellung (2/2)"):
                 else:
                     image_data = None
 
+        params = {
+            "name": event_name,
+            "start_time": start_time,
+            "end_time": end_time,
+            "privacy_level": discord.PrivacyLevel.guild_only,
+            "entity_type": discord.EntityType.external,
+            "description": updated_event_description,
+            "location": message_link
+        }
+        if image_data is not None:
+            params["image"] = image_data
+
         try:
-            scheduled_event = await guild.create_scheduled_event(
-                name=event_name,
-                start_time=start_time,
-                end_time=end_time,
-                privacy_level=discord.PrivacyLevel.guild_only,
-                entity_type=discord.EntityType.external,
-                description=event_description,
-                location="Streamer Ecke",
-                image=image_data
-            )
+            scheduled_event = await guild.create_scheduled_event(**params)
         except Exception as e:
             log.error(f"Fehler beim Erstellen des Discord-Events: {e}")
             scheduled_event = None
 
         if scheduled_event:
-            event_link = f"https://discord.com/events/{guild.id}/{scheduled_event.id}"
+            event_link_native = f"https://discord.com/events/{guild.id}/{scheduled_event.id}"
         else:
-            event_link = "Fehler beim Erstellen des Discord-Events."
+            event_link_native = "Fehler beim Erstellen des Discord-Events."
 
+        # Aktualisiere Eventdaten mit Nachrichten-ID und nativen Event-Link
+        data = load_data()
+        data["events"][event_id]["message_id"] = message.id
+        data["events"][event_id]["discord_event_link"] = event_link_native
+        data["events"][event_id]["discord_event_id"] = scheduled_event.id if scheduled_event else None
+        data["events"][event_id]["message_link"] = message.jump_url
+        save_data(data)
+
+        # Sende den nativen Event-Link in den konfigurierten Channel, falls gesetzt
+        event_channel_id = data.get("event_channel_id")
+        if event_channel_id:
+            event_channel = guild.get_channel(event_channel_id)
+            if event_channel:
+                await event_channel.send(f"Neues Discord-Event erstellt: {event_link_native}")
+        else:
+            log.warning("Kein Event-Channel in den Daten hinterlegt.")
+
+    def _build_embed(self, event_data, event_datetime, duration_minutes):
         formatted_datetime = event_datetime.strftime("%d.%m.%Y %H:%M")
         relative_timestamp = f"<t:{int(event_datetime.timestamp())}:R>"
         embed = discord.Embed(title=event_data["title"], color=discord.Color.blue())
-        embed.add_field(name="📅 Datum & Uhrzeit", value=f"{formatted_datetime} \n {relative_timestamp}", inline=True)
-        embed.add_field(name="🎮 Spiel", value=self.game_title.value, inline=True)
-        embed.add_field(name="👥 Max. Spieler", value="        " + str(max_players), inline=True)
+        embed.add_field(name="📅 Datum & Uhrzeit", value=f"{formatted_datetime}\n{relative_timestamp}", inline=True)
+        embed.add_field(name="🎮 Spiel", value=event_data["game"], inline=True)
+        embed.add_field(name="👥 Max. Spieler", value=str(event_data["max_players"]), inline=True)
         if duration_minutes is not None:
             embed.add_field(name="⏳ Dauer", value=f"{duration_minutes} Minuten", inline=True)
         embed.add_field(name="📜 Beschreibung", value=event_data["description"], inline=False)
@@ -289,32 +333,14 @@ class EventModalDetails(discord.ui.Modal, title="Event-Erstellung (2/2)"):
         embed.add_field(name="✅ Zusagen", value="Noch keine", inline=True)
         embed.add_field(name="⚠️ Vielleicht", value="Noch keine", inline=True)
         embed.add_field(name="❌ Absagen", value="Noch keine", inline=True)
-
-        view = EventButtons(event_id)
-        await interaction.response.send_message(embed=embed, view=view)
-        message = await interaction.original_response()
-        data = load_data()
-        data["events"][event_id]["message_id"] = message.id
-        data["events"][event_id]["discord_event_link"] = event_link
-        save_data(data)
-
-        # Event-Link im konfigurierten Textkanal posten, falls gesetzt
-        event_channel_id = data.get("event_channel_id")
-        if event_channel_id:
-            event_channel = guild.get_channel(event_channel_id)
-            if event_channel:
-                await event_channel.send(f"Neues Discord-Event erstellt: {event_link}")
-        else:
-            log.warning("Kein Event-Channel in den Daten hinterlegt.")
+        return embed
 
 # --- Slash-Befehle ---
 
-# Befehl zur Event-Erstellung
 @client.tree.command(name="event", description="Erstelle ein neues Event", guild=discord.Object(id=GUILD_ID))
 async def create_event(interaction: discord.Interaction):
     await interaction.response.send_modal(EventModalBasic())
 
-# Befehl zur Rechteverwaltung (Admin/Moderator)
 @client.tree.command(name="set_permissions", description="Verwalte die Bot Rechte. Nutze: `admin`, `moderator`", guild=discord.Object(id=GUILD_ID))
 async def set_permissions(interaction: discord.Interaction, user: discord.User, role: str):
     data = load_data()
@@ -345,7 +371,6 @@ async def set_permissions(interaction: discord.Interaction, user: discord.User, 
     save_data(data)
     await interaction.response.send_message(f"✅ {user.mention} wurde als {role_name} hinzugefügt!", ephemeral=True)
 
-# Neuer Befehl zum Setzen des Event-Channels (nur Admins, überschreibt alten Eintrag)
 @client.tree.command(name="set_event_channel", description="Setzt den Channel, in dem Discord-Event-Links gepostet werden", guild=discord.Object(id=GUILD_ID))
 async def set_event_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     data = load_data()
@@ -360,10 +385,34 @@ async def set_event_channel(interaction: discord.Interaction, channel: discord.T
 # --- Task: Überprüfung und Verwaltung von Events ---
 @tasks.loop(minutes=1)
 async def check_events():
-    now = datetime.now()
+    now = datetime.now().astimezone()
+    guild = client.get_guild(GUILD_ID)
     data = load_data()
     for event_id, event in list(data["events"].items()):
-        event_time = datetime.strptime(event["time"], "%d.%m.%Y %H:%M")
+        # Aktualisiere die native Eventbeschreibung
+        try:
+            yes_count = len(event["participants"]["yes"])
+            maybe_count = len(event["participants"]["maybe"])
+            no_count = len(event["participants"]["no"])
+            waiting_count = len(event["participants"]["waiting"])
+            participant_counts = f"✅ Zusagen: {yes_count}\n⚠️ Vielleicht: {maybe_count}\n❌ Absagen: {no_count}\n⏳ Warteliste: {waiting_count}"
+            base_event_description = f"{event['game']}\n\n{event['description']}"
+            message_link = event.get("message_link", "")
+            updated_event_description = f"{base_event_description}\n\n{participant_counts}\n\nEventdetails and Anmeldelink: {message_link}"
+
+            discord_event = await guild.fetch_scheduled_event(event["discord_event_id"])
+            await discord_event.edit(description=updated_event_description)
+        except Exception as e:
+            log.error(f"Fehler beim Aktualisieren des nativen Discord-Events in der Loop: {e}")
+
+        # Bestehende Logik für Erinnerungen und Start...
+        try:
+            event_time = datetime.strptime(event["time"], "%d.%m.%Y %H:%M")
+            local_tz = datetime.now().astimezone().tzinfo
+            event_time = event_time.replace(tzinfo=local_tz)
+        except ValueError:
+            continue
+
         if now >= event_time - timedelta(hours=1) and not event.get("reminder_sent"):
             channel = client.get_channel(event["channel_id"])
             try:
@@ -392,11 +441,17 @@ async def check_events():
             except Exception as e:
                 log.error(f"Fehler beim Entfernen der Buttons: {e}")
 
+            # Erstelle ein Embed für den Event-Start inklusive der Warteliste (Kategorie "waiting")
+            yes_mentions = ', '.join([f'<@{uid}>' for uid in event["participants"]["yes"]]) or "Keine"
+            waiting_mentions = ', '.join([f'<@{uid}>' for uid in event["participants"]["waiting"]]) or "Keine"
+            no_mentions = ', '.join([f'<@{uid}>' for uid in event["participants"]["no"]]) or "Keine"
             embed = discord.Embed(
                 title="Event Start",
                 description=f"🎮 **{event['title']}** startet jetzt!",
                 color=discord.Color.green()
             )
+            embed.add_field(name="✅ Zusagen", value=yes_mentions, inline=True)
+            embed.add_field(name="⏳ Warteliste", value=waiting_mentions, inline=True)
             await channel.send(embed=embed)
             del data["events"][event_id]
     save_data(data)
