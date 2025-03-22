@@ -337,11 +337,11 @@ class EventModalDetails(discord.ui.Modal, title="Event-Erstellung (2/2)"):
 
 # --- Slash-Befehle ---
 
-@client.tree.command(name="event", description="Erstelle ein neues Event", guild=discord.Object(id=GUILD_ID))
+@client.tree.command(name="event", description="Erstelle ein neues Event")
 async def create_event(interaction: discord.Interaction):
     await interaction.response.send_modal(EventModalBasic())
 
-@client.tree.command(name="set_permissions", description="Verwalte die Bot Rechte. Nutze: `admin`, `moderator`", guild=discord.Object(id=GUILD_ID))
+@client.tree.command(name="set_permissions", description="Verwalte die Bot Rechte. Nutze: `admin`, `moderator`")
 async def set_permissions(interaction: discord.Interaction, user: discord.User, role: str):
     data = load_data()
     if interaction.user.id not in data["admins"]:
@@ -371,7 +371,7 @@ async def set_permissions(interaction: discord.Interaction, user: discord.User, 
     save_data(data)
     await interaction.response.send_message(f"✅ {user.mention} wurde als {role_name} hinzugefügt!", ephemeral=True)
 
-@client.tree.command(name="set_event_channel", description="Setzt den Channel, in dem Discord-Event-Links gepostet werden", guild=discord.Object(id=GUILD_ID))
+@client.tree.command(name="set_event_channel", description="Setzt den Channel, in dem Discord-Event-Links gepostet werden")
 async def set_event_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     data = load_data()
     if interaction.user.id not in data["admins"]:
